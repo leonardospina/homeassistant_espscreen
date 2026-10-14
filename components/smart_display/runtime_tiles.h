@@ -249,6 +249,7 @@ inline lv_obj_t *saver_root = nullptr;      // the clock
 // `saver_words_due` until it has come.
 inline lv_obj_t *saver_first = nullptr, *saver_second = nullptr;
 inline bool saver_words_due = false;
+inline bool saver_clock_overlay = false;  // the displayed labels, independent of the next picture's choice
 // A player's keys over its cover (firmware 0.33.0+): volume up, volume down, play or pause. They take their own tap, so
 // the screen stays in standby; a touch anywhere else wakes it. `saver_flipped`: when the play key last showed the other
 // face ahead of Home Assistant's word.
@@ -11348,6 +11349,7 @@ inline void camera_close() {
   camera_sound_key = nullptr;  // it went with the view
   map_zoom_keys = map_pad = map_waiting = nullptr;
   saver_first = saver_second = nullptr;  // they went with the view
+  saver_clock_overlay = false;
   saver_keys = {};
   map_focus.clear();
   map_pinned = false;
@@ -12160,7 +12162,7 @@ inline saver_view::Keys saver_key_layout() {
 // The words over the picture, once it is there: a cover's title with its artist and album, a camera's name alone, in
 // white over the darkened picture or the cover's colour.
 inline void saver_overlay_text() {
-  if (!saver_lit || !saver_camera || saver_now.kind != "slideshow" || !saver_now.clock) return;
+  if (!saver_lit || !saver_camera || !saver_clock_overlay) return;
   const auto now = now_time ? now_time() : esphome::ESPTime{};
   const auto period = am_pm(now);
   if (saver_first) label(saver_first, time_text(now) + (period.empty() ? "" : " " + period));
@@ -12169,6 +12171,7 @@ inline void saver_overlay_text() {
 inline void saver_words() {
   if (!camera_root || !saver_camera) return;
   const auto &c = saver_now;
+  saver_clock_overlay = c.kind == "slideshow" && c.clock;
   const int width = overlay_card::screen_width(), height = overlay_card::screen_height();
   const bool large = ui::large();
   const int margin = ui::px(large ? 28 : 12), gap = ui::px(large ? 4 : 2);
@@ -12440,7 +12443,7 @@ inline void saver_tick(uint32_t now) {
   }
   // Gone under it (a new layout, an alert that closed the camera): drawn again.
   if (saver_lit && !saver_root && !saver_camera && saver_wanted()) saver_show();
-  if (!saver_words_due) saver_overlay_text();
+  saver_overlay_text();
 }
 
 // ---------------------------------------------------------------------------------------------------------
