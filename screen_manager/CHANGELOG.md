@@ -1,5 +1,8 @@
 ## Unreleased
 
+- **Camera pictures on plugin tiles.** A plugin's picture tile can show its selected Home Assistant camera, including
+  an album slideshow. A reported camera state change refreshes the picture without sending camera access tokens to
+  the screen. Ordering and the time between slides stay with the Home Assistant integration.
 - **Screens with plugin tiles stay up.** A plugin tile's options and data, and the buffers a picture is downloaded
   with, now live in the screen's PSRAM instead of the small memory inside the chip that Wi-Fi needs. On a 4-inch
   Guition with a few plugin tiles and pictures that memory could run out at a busy moment: the screen restarted, or lost

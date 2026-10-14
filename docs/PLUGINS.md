@@ -276,6 +276,17 @@ pictures (no `SCREEN_PICTURES`) has the calls and shows blocks; `ui::pictures()`
 without the places. Nothing of this counts in the layout memory: the store's budget and its rule of the picture used
 longest ago hold for a plugin's atlas as for every picture.
 
+**Camera snapshots.** A tile with `camera` in `domains`, `entity_picture` in `attributes` and a nonzero `pictures`
+gets a token-free `/api/camera_proxy/<entity>?v=<revision>` picture address instead of the camera's original
+`entity_picture`. It is kept whole (up to the picture address limit, rather than the usual 48-byte attribute text).
+The revision is a digest of the selected camera's Home Assistant state, including its attributes, so a slideshow
+integration that reports each slide refreshes the picture through the existing `ui::set_picture` call. Missing,
+unknown or unavailable cameras get an empty address. A camera that changes its image without publishing a state
+change does not refresh automatically. The app checks every camera request against the tile's stored selected
+entity and manifest domain, then fetches its snapshot from Home Assistant without redirects. No camera tokens go
+to the screen; the revision is a cache key, not a query sent to Home Assistant. Snapshots are limited to 2 MB and
+cached per revision, with the same retry delay as other pictures. This adds no firmware API call or manifest field.
+
 **Layers, turns and reflections.** The places of one card may overlap: they are its layers, and a place made later
 lies over one made earlier. The screen draws them in that order, and the app paints the atlas in the same order
 (`tile_art.layers`): each frame over what the ones before it left, on the card's colour where nothing lies yet, so a

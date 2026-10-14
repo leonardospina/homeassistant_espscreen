@@ -658,7 +658,7 @@ class HomeAssistant:
         """The picture of a camera or image entity as Home Assistant hands it to its own frontend."""
         path = 'camera_proxy' if entity.startswith('camera.') else 'image_proxy'
         async with self.session.get(f'{self.base}/{path}/{entity}', headers={'Authorization': 'Bearer ' + self.token},
-                                    timeout=ClientTimeout(total=camera_feed.FETCH_SECONDS)) as response:
+                                    timeout=ClientTimeout(total=camera_feed.FETCH_SECONDS), allow_redirects=False) as response:
             response.raise_for_status()
             if (response.content_length or 0) > camera_feed.MAX_SNAPSHOT_BYTES:
                 raise ValueError('image too large')
@@ -3443,12 +3443,13 @@ class Manager:
             return
         entry = self.plugins.known(question.plugin, inbox)
         kind = entry.tile(question.tile) if entry else None
-        problem = plugin_pictures.refused(question, entry.manifest if entry else None, kind)
+        entity = (placed[question.index].get('options') or {}).get('plugin_entity')
+        problem = plugin_pictures.refused(question, entry.manifest if entry else None, kind, entity)
         if problem:
             LOG.info('Pictures for %s on %s refused: %s', question.entity, screen['name'], problem)
             await self.send_auxiliary(inbox, answer, action, request)
             return
-        raws = await asyncio.gather(*(self.plugins.pictures.fetch(url, entry.manifest, kind) for url in question.sources))
+        raws = await asyncio.gather(*(self.plugins.pictures.fetch(url, entry.manifest, kind, entity) for url in question.sources))
         base = await camera_feed.base_url(self.ha.request)
         if not base:
             LOG.warning('Plugin pictures: no address for this app on the LAN; set SCREEN_CAMERA_URL')

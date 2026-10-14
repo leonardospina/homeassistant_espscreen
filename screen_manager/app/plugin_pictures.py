@@ -34,6 +34,14 @@ FAIL_SECONDS = 60              # an address that did not come is not tried again
 HA_PICTURES = ('/api/image/serve/', '/api/image_proxy/', '/local/')
 
 
+def camera_source(entity, state):
+    """A token-free picture address whose revision changes with the selected camera's Home Assistant state."""
+    if not core.entity_id(entity) or not entity.startswith('camera.') or state.get('state', 'unavailable') in ('unknown', 'unavailable'):
+        return ''
+    source = f'/api/camera_proxy/{entity}?v={core.revision(state)}'
+    return source if len(source) <= MAX_URL else ''
+
+
 class Question:
     """What one plugin tile asked for."""
     __slots__ = ('entity', 'plugin', 'tile', 'index', 'atlas', 'sources', 'fits', 'ground', 'dark', 'turns', 'mirrors')
@@ -93,13 +101,16 @@ def parse(request, canvas):
                     str(request.get('dark') or '') == '1', turns, [bool(m) for m in mirrors])
 
 
-def allowed(url, manifest, tile):
+def allowed(url, manifest, tile, entity=None):
     """Where a picture of a tile with this manifest may come from: 'network' for an address on a host the manifest
     names under permissions.network, 'home_assistant' for a picture of Home Assistant's own (HA_PICTURES) on a tile of
-    an entity, None for anything else (the app fetches nothing it does not name)."""
+    an entity, 'camera' for the selected camera's revision address, None for anything else."""
     if not manifest or not tile or not tile.get('pictures'):
         return None
     if url.startswith('/'):
+        if entity and core.entity_id(entity) and entity.startswith('camera.') and 'camera' in tile.get('domains', []):
+            if re.fullmatch(re.escape(f'/api/camera_proxy/{entity}') + r'\?v=[0-9a-f]{12}', url):
+                return 'camera'
         path = url.split('?', 1)[0]
         if tile.get('domains') and path.startswith(HA_PICTURES) and '..' not in path and '//' not in url[1:]:
             return 'home_assistant'
@@ -111,7 +122,7 @@ def allowed(url, manifest, tile):
     return 'network'
 
 
-def refused(question, manifest, tile):
+def refused(question, manifest, tile, entity=None):
     """Why a question is not answered with pictures, as a sentence for the log; None when it may be."""
     if not manifest or not tile:
         return 'the screen does not run the plugin, or the plugin has no such tile'
@@ -120,7 +131,7 @@ def refused(question, manifest, tile):
     if len(question.sources) > tile['pictures']:
         return f'{len(question.sources)} pictures asked, the manifest allows {tile["pictures"]}'
     for url in question.sources:
-        if not allowed(url, manifest, tile):
+        if not allowed(url, manifest, tile, entity):
             return f'{url[:80]} is not an address the plugin may show'
     return None
 
@@ -129,8 +140,9 @@ class Pictures:
     """The pictures of every plugin tile: fetched through the plugins' own session (plugin_fetch.Fetcher: public hosts
     only, no redirects) or Home Assistant's (`ha_picture(path)`, the app's own token), kept by address."""
 
-    def __init__(self, fetcher, ha_picture=None, clock=time.monotonic):
+    def __init__(self, fetcher, ha_picture=None, clock=time.monotonic, ha_camera=None):
         self.fetcher, self.ha_picture, self.clock = fetcher, ha_picture, clock
+        self.ha_camera = ha_camera
         self.cache = OrderedDict()   # url -> {'raw': bytes or None, 'at': when it came, or failed}
         self.locks = {}
 
@@ -143,10 +155,10 @@ class Pictures:
         while len(self.cache) > 256 or self._bytes() > CACHE_BYTES:
             self.cache.popitem(last=False)
 
-    async def fetch(self, url, manifest, tile):
+    async def fetch(self, url, manifest, tile, entity=None):
         """The picture at `url` for a tile with this manifest, or None when it does not come (logged once; tried again
         after FAIL_SECONDS). A picture that came is kept KEEP_SECONDS."""
-        where = allowed(url, manifest, tile)
+        where = allowed(url, manifest, tile, entity)
         if not where:
             return None
         entry = self.cache.get(url)
@@ -162,7 +174,13 @@ class Pictures:
                 return entry['raw']
             raw = None
             try:
-                if where == 'home_assistant':
+                if where == 'camera':
+                    if self.ha_camera is None:
+                        raise OSError('no Home Assistant camera')
+                    raw = await asyncio.wait_for(self.ha_camera(entity), plugin_fetch.TIMEOUT)
+                    if raw and len(raw) > PICTURE_BYTES:
+                        raise OSError('picture too large')
+                elif where == 'home_assistant':
                     if self.ha_picture is None:
                         raise OSError('no Home Assistant')
                     raw = await asyncio.wait_for(self.ha_picture(url), plugin_fetch.TIMEOUT)

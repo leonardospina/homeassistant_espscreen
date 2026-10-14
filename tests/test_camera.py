@@ -243,6 +243,12 @@ class Rules(unittest.TestCase):
 
 @unittest.skipUnless(HAS_AIOHTTP, 'Run using .venv-portal/bin/python for server tests')
 class MediaFetchSecurity(unittest.IsolatedAsyncioTestCase):
+    async def test_camera_snapshot_keeps_the_token_on_home_assistant(self):
+        session = RecordingSession()
+        ha = HomeAssistant(session, 'http://ha/api', 'token')
+        self.assertEqual(await ha.camera_image('camera.album'), b'picture')
+        self.assertEqual(session.calls, [('http://ha/api/camera_proxy/camera.album', 'Bearer ' + ha.token, False)])
+
     async def test_local_media_urls_must_be_the_entity_proxy_route(self):
         ha = HomeAssistant(None, 'http://ha/api', 'token')
         ha.states = {'media_player.office': {'attributes': {'entity_picture': '/api/states'}}}
@@ -603,6 +609,43 @@ def fake_ha(image=None):
 class App(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         camera_feed.base_url.__defaults__[0].clear()
+
+    async def test_plugin_camera_frames_refresh_and_cannot_read_another_camera(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            ha = fake_ha(picture('JPEG', (640, 360)))
+            ha.states['sensor.d1_fw']['state'] = '0.2.77'
+            ha.states['camera.album'] = {'state': 'idle', 'last_updated': 'first', 'attributes': {
+                'entity_picture': '/api/camera_proxy/camera.album?token=private', 'frame_id': 1}}
+            m = Manager(with_screen_grid(ha), Path(tmp) / 'screens.json')
+            tile = {'entity': 'plugin:photos.frame', 'name': '', 'options': {'plugin_entity': 'camera.album'}}
+            seed_layout(m, 'text.d1_tiles', validate_layout({'title': 'Photos', 'tiles': [tile]}))
+            kind = {'domains': ['camera'], 'attributes': ['entity_picture'], 'pictures': 1}
+            entry = mock.Mock(manifest={'id': 'photos', 'permissions': {'network': []}})
+            entry.tile.return_value = kind
+            m.plugins.known = mock.Mock(return_value=entry)
+            self.assertEqual(m.related_entities(tile), ('camera.album',))
+
+            def request():
+                _, data = m.plugins.entity_part(kind, tile)
+                return {'inbox': 'text.d1_tiles', 'tiles': tile['entity'], 'idx': '0', 'bg': '202020',
+                        'atlas': '[[0,0,60,90,6,0]]', 'src': json.dumps([data['attributes']['entity_picture']])}
+
+            first = request()
+            await m.answer_camera(first)
+            await m.answer_camera(first)
+            self.assertEqual([event for event in ha.log if event[0] == 'fetch'], [('fetch', 'camera.album')])
+            self.assertTrue(all(event[2]['u'] for event in ha.log if event[0] == 'send'))
+            ha.states['camera.album']['last_updated'] = 'second'
+            ha.states['camera.album']['attributes']['frame_id'] = 2
+            second = request()
+            self.assertNotEqual(first['src'], second['src'])
+            await m.answer_camera(second)
+            self.assertEqual([event for event in ha.log if event[0] == 'fetch'], [('fetch', 'camera.album')] * 2)
+            ha.log.clear()
+            await m.answer_camera({**second, 'src': second['src'].replace('camera.album', 'camera.other')})
+            self.assertFalse(any(event[0] == 'fetch' for event in ha.log))
+            self.assertEqual([event[2]['u'] for event in ha.log if event[0] == 'send'], [''])
 
     async def test_camera_alert_announcement_and_image_use_the_page_session(self):
         from page_delivery import Sender

@@ -258,7 +258,8 @@ class Plugins:
         self.liker = plugin_likes.Likes(Path(data_dir) / 'plugin_likes.json')
         self.fetcher = plugin_fetch.Fetcher(f'Tessera/{core.FIRMWARE_VERSION} (+plugins)', session_factory)
         # The pictures of plugin tiles (plugin API 0.10), through the fetcher's session, or Home Assistant's own.
-        self.pictures = plugin_pictures.Pictures(self.fetcher, lambda path: self.manager.ha.entity_picture(path))
+        self.pictures = plugin_pictures.Pictures(self.fetcher, lambda path: self.manager.ha.entity_picture(path),
+                                                ha_camera=lambda entity: self.manager.ha.camera_image(entity))
         self.index = {}             # id -> Entry, from index.json
         self.index_state = {'at': None, 'error': None, 'etag': None, 'checked': 0.0, 'blocked': [], 'featured': []}
         # likes.json: how many like each plugin; `fresh`: the website's own answer to a like from this app, which counts
@@ -1355,7 +1356,8 @@ class Plugins:
         attributes its manifest names and the `fields` it takes out of them, bounded as every tile's: a text at 48
         bytes, and the lists together within X_BUDGET, each shortened from the end to the same length only when they
         do not fit (96 prices of a quarter of an hour fit, twice). An attribute named ..._at, ..._time or ...date that
-        holds a moment goes as seconds since 1970, so the screen says it in its words."""
+        holds a moment goes as seconds since 1970, so the screen says it in its words. A camera's entity_picture is a
+        complete token-free revision address, not a shortened attribute."""
         entity = (tile.get('options') or {}).get('plugin_entity')
         if not kind or not kind['domains'] or not entity:
             return None, None
@@ -1365,6 +1367,9 @@ class Plugins:
         attrs = state.get('attributes') or {}
         bounded = {}
         for name in kind['attributes']:
+            if name == 'entity_picture' and entity.startswith('camera.') and kind.get('pictures'):
+                bounded[name] = plugin_pictures.camera_source(entity, state)
+                continue
             value = attrs.get(name)
             if name.endswith(('_at', '_time', 'date')) and isinstance(value, str):
                 moment = plugin_fetch.epoch_of(value, getattr(self.manager.ha, 'time_zone', None))

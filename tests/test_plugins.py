@@ -276,6 +276,55 @@ class Pictures(unittest.IsolatedAsyncioTestCase):
         self.assertIn('not an address', plugin_pictures.refused(self.question(src='["https://x.org/a","https://api.example.org/b"]'), checked, tile))
         self.assertIn('does not run', plugin_pictures.refused(q, None, None))
 
+    def test_camera_pictures_are_bound_to_the_selected_entity(self):
+        checked = pm.check(manifest(), ENGLISH)
+        tile = dict(checked['tiles'][0], pictures=2, domains=['camera'])
+        source = plugin_pictures.camera_source('camera.album', {'state': 'idle', 'last_updated': 'first'})
+        self.assertEqual(plugin_pictures.allowed(source, checked, tile, 'camera.album'), 'camera')
+        for url, selected, kind in (
+                (source, '', tile), (source, 'camera.other', tile),
+                (source, 'camera.album', dict(tile, domains=['person'])),
+                ('/api/camera_proxy/camera.album', 'camera.album', tile),
+                (source + '&token=secret', 'camera.album', tile),
+                (source.replace('camera.album', 'camera.album/../other'), 'camera.album', tile),
+                (source.replace('camera.album', 'camera%2ealbum'), 'camera.album', tile),
+                ('//elsewhere' + source, 'camera.album', tile)):
+            with self.subTest(url=url, selected=selected):
+                self.assertIsNone(plugin_pictures.allowed(url, checked, kind, selected))
+        q = self.question(src=json.dumps([source, source]))
+        self.assertIsNone(plugin_pictures.refused(q, checked, tile, 'camera.album'))
+        self.assertIn('not an address', plugin_pictures.refused(q, checked, tile, 'camera.other'))
+
+    async def test_camera_frames_refresh_share_a_cache_and_retry_failures(self):
+        checked = pm.check(manifest(), ENGLISH)
+        tile = dict(checked['tiles'][0], pictures=1, domains=['camera'])
+        state = {'state': 'idle', 'last_updated': 'first',
+                 'attributes': {'entity_picture': '/api/camera_proxy/camera.album?token=secret', 'frame_id': 1}}
+        first = plugin_pictures.camera_source('camera.album', state)
+        second = plugin_pictures.camera_source('camera.album', {**state, 'last_updated': 'second'})
+        self.assertNotEqual(first, second)
+        self.assertNotIn('secret', first)
+        asked, now = [], [1000.0]
+
+        async def snapshot(entity):
+            asked.append(entity)
+            await asyncio.sleep(0)
+            if len(asked) == 3:
+                raise OSError('HTTP 503')
+            return b'frame' + str(len(asked)).encode()
+
+        pictures = plugin_pictures.Pictures(None, ha_camera=snapshot, clock=lambda: now[0])
+        self.assertEqual(await asyncio.gather(*(pictures.fetch(first, checked, tile, 'camera.album') for _ in range(2))),
+                         [b'frame1', b'frame1'])
+        self.assertEqual(await pictures.fetch(second, checked, tile, 'camera.album'), b'frame2')
+        self.assertIsNone(await pictures.fetch(first, checked, tile, 'camera.other'))  # even when cached
+        failed = plugin_pictures.camera_source('camera.album', {**state, 'last_updated': 'third'})
+        self.assertIsNone(await pictures.fetch(failed, checked, tile, 'camera.album'))
+        self.assertIsNone(await pictures.fetch(failed, checked, tile, 'camera.album'))
+        self.assertEqual(asked, ['camera.album'] * 3)
+        now[0] += plugin_pictures.FAIL_SECONDS + 1
+        self.assertEqual(await pictures.fetch(failed, checked, tile, 'camera.album'), b'frame4')
+
     async def test_a_picture_is_fetched_once_and_a_failure_waits(self):
         checked = pm.check(manifest(), ENGLISH)
         tile = dict(checked['tiles'][0], pictures=2, domains=['person'])
@@ -671,6 +720,39 @@ class Layout(unittest.TestCase):
 
 
 class EntityTile(unittest.IsolatedAsyncioTestCase):
+    async def test_camera_picture_is_token_free_complete_and_changes_with_the_frame(self):
+        import plugins as plugin_service
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        entity = 'camera.' + 'long_album_name_' * 7
+        state = {'state': 'idle', 'last_updated': 'first', 'attributes': {
+            'entity_picture': '/api/camera_proxy/' + entity + '?token=secret',
+            'frame_id': 1, 'friendly_name': 'Album'}}
+        ha = type('HA', (), {'states': {entity: state}, 'changed': asyncio.Event(), 'dirty': set()})()
+        manager = type('Manager', (), {'ha': ha, 'page_senders': {}})()
+        service = plugin_service.Plugins(manager, Path(tmp.name) / 'data', Path(tmp.name) / 'esphome')
+        kind = {'id': 'picture', 'domains': ['camera'], 'attributes': ['entity_picture'], 'pictures': 1}
+        tile = {'options': {'plugin_entity': entity}}
+        _, first = service.entity_part(kind, tile)
+        source = first['attributes']['entity_picture']
+        self.assertEqual(source, plugin_pictures.camera_source(entity, state))
+        self.assertGreater(len(source), 48)
+        self.assertNotIn('secret', json.dumps(first))
+        self.assertNotIn('frame_id', first['attributes'])
+        self.assertEqual(service.entity_part(kind, tile)[1], first)
+        state['last_updated'] = 'second'
+        state['attributes']['frame_id'] = 2
+        _, next_frame = service.entity_part(kind, tile)
+        self.assertNotEqual(source, next_frame['attributes']['entity_picture'])
+        state['state'] = 'unavailable'
+        self.assertEqual(service.entity_part(kind, tile)[1]['attributes']['entity_picture'], '')
+        state['state'] = 'unknown'
+        self.assertEqual(service.entity_part(kind, tile)[1]['attributes']['entity_picture'], '')
+        ha.states.clear()
+        self.assertEqual(service.entity_part(kind, tile)[1]['attributes']['entity_picture'], '')
+        kind['attributes'] = []
+        self.assertEqual(service.entity_part(kind, tile)[1]['attributes'], {})
+
     async def test_state_name_and_named_attributes_only(self):
         import plugins as plugin_service
         tmp = tempfile.TemporaryDirectory()
