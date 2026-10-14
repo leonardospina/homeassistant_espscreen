@@ -226,6 +226,11 @@ Guition it comes in about 1.8 s (2.8 s with 4 KB).
 
 ## Live on the P4 boards
 
+For a photo camera in standby, use the native **Slideshow** screensaver rather than the **Camera** step:
+it keeps photos whole and undimmed by default and checks snapshots about every four seconds. Home Assistant controls
+the slideshow's interval and order. [SCREENSAVER.md](SCREENSAVER.md#set-up-a-slideshow) covers its setup, including
+Album Slideshow's pause and canvas settings.
+
 A camera opened full screen on a board with an ESP32-P4 (the reTerminal D1001, the M5Stack Tab5, the Waveshare
 ESP32-P4 panel and the Guition P4 boards) plays live, at the camera's own pace, about a tenth of a second behind the
 camera. Every other board keeps the still of every four seconds above. A map, an image entity and the screensaver stay

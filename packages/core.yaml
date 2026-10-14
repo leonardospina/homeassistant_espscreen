@@ -666,6 +666,7 @@ api:
                     features.add("saver_keys");
                     // saver_items (firmware 0.50.0+, app 0.4.81): the clock's row of entities, `wi` of the op "saver".
                     features.add("saver_items");
+                    features.add("saver_slideshow");
                     // speaker_groups (firmware 0.26.0+, app speakers.py): a player's speakers with a key to join or leave
                     // the group and each one's volume, its inputs behind a key of their own, and the speaker it follows.
                     features.add("speaker_groups");

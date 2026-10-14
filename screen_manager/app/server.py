@@ -3181,7 +3181,12 @@ class Manager:
         broken = {entity for entity in screen_saver.players(choice) if self.camera.cover_broken(entity)}
         return screen_saver.message(choice, self.ha.states, pictures, short, media_extras, self.player_ground, keys,
                                     held=self.saver_shown.get(screen.get('id'), ''), bar=self.saver_item if row else None,
-                                    broken=broken)
+                                    broken=broken, slideshow=self.slideshow_ready(screen))
+
+    def slideshow_ready(self, screen):
+        sender = self.page_senders.get(screen.get('id'))
+        return bool(camera_feed.box(screen, 'full')) and screen_saver.SLIDESHOW_FEATURE in (
+            getattr(sender, 'features', None) or ())
 
     def saver_item(self, item):
         """One of the clock's entity items as the top bar sends it (header_bar.entity_item)."""
@@ -3258,7 +3263,7 @@ class Manager:
             await self.library_art(inbox, screen, request)
             return
         # The screensaver's picture (app 0.4.48, firmware 0.29.0+): the screen's whole box, darkened, of its own choice.
-        if request.get('saver') in ('media', 'camera'):
+        if request.get('saver') in ('media', 'camera', 'slideshow'):
             await self.answer_saver(inbox, screen, request)
             return
         # The pictures of a plugin tile's places (plugin API 0.10): one atlas for all of them.
@@ -3302,6 +3307,12 @@ class Manager:
             return
         if (kind == 'media') != (entity.split('.')[0] == 'media_player'):
             return
+        presentation = {}
+        if kind == 'slideshow':
+            choice = self.savers.get(screen.get('device_id'))
+            if not self.slideshow_ready(screen) or entity != choice['slideshow']:
+                return
+            presentation = {'fit': choice['slideshow_fit'], 'clock': choice['slideshow_clock']}
         box, action = camera_feed.box(screen, 'full', camera_feed.picture_cap(request)), self.transport(inbox, screen)
         if not box or not action:
             return
@@ -3312,8 +3323,9 @@ class Manager:
                 ground = int(colours.split(',')[0], 16)
         url = ''
         base = await camera_feed.base_url(self.ha.request)
-        if base and await self.camera.saver(entity, box, kind, ground):
-            url = f'{base}/camera/{self.camera.link(entity, box, saver=(kind, ground))}.bmp'
+        if base and await self.camera.saver(entity, box, kind, ground, **presentation):
+            render = (kind, ground, presentation['fit'], presentation['clock']) if presentation else (kind, ground)
+            url = f'{base}/camera/{self.camera.link(entity, box, saver=render)}.bmp'
         if not url and kind == 'media' and self.camera.cover_pending(entity):
             # The cover is still on its way: no answer, so the screen asks again (camera_view::ASK_AGAIN_MS) and gets it
             # then. A screen told there is none keeps a black glass until the next track.
@@ -3970,6 +3982,7 @@ def create_app(manager, development=False):
             # draws pictures (else the clock alone) and whether it goes into standby at all.
             screen['screensaver'] = {**manager.savers.get(screen.get('device_id')),
                                      'ready': (manager.firmware_version(screen['id'], screen) or (0, 0, 0)) >= SCREENSAVER_MIN_FIRMWARE,
+                                     'slideshow_ready': manager.slideshow_ready(screen),
                                      'pictures': bool(camera_feed.box(screen, 'full')), 'standby': can_standby(screen)}
             # The delivery and our own word for a screen that reports nothing, in the editor's language (app 0.2.90).
             status = manager.status.get(screen['id'])

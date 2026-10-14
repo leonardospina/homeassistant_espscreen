@@ -406,12 +406,20 @@ std::string receive(const std::string &payload) {
       // What the screensaver shows (app 0.4.48, firmware 0.29.0+, screen_saver.py): "media", "camera", "clock" or ""
       // for none. A player brings its words and the marks of its picture; the picture is asked for as camera "saver".
       SaverChoice next;
-      next.kind = string(root["k"], 8);
-      if (!next.kind.empty() && next.kind != "media" && next.kind != "camera" && next.kind != "clock") return false;
-      if (next.kind == "media" || next.kind == "camera") {
+      next.kind = string(root["k"], 16);
+      if (!saver_view::valid_kind(next.kind)) return false;
+      if (saver_view::picture_kind(next.kind)) {
         next.entity = string(root["e"], 120);
         if (!valid_entity(next.entity)) return false;
         next.name = string(root["n"], 80);
+      }
+      if (next.kind == "slideshow") {
+        next.fit = string(root["fit"], 8);
+        if (next.fit != "contain" && next.fit != "cover") return false;
+        if (!root["clock"].is<bool>()) return false;
+        next.clock = root["clock"].as<bool>();
+        next.picture = string(root["x"]["pic"], 16);
+        if (next.entity.compare(0, 7, "camera.") != 0) return false;
       }
       if (next.kind == "media") {
         auto extra = root["x"];

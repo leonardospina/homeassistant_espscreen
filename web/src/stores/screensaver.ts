@@ -18,7 +18,7 @@ import { itemList, useTopbarStore } from "./topbar";
 import { useUiStore } from "./ui";
 
 export const SAVER_MIN_FIRMWARE = "0.29.0";
-export const SAVER_ICONS: Record<SaverKind, string> = { media: "F075A", camera: "F07AE", clock: "F0150" };
+export const SAVER_ICONS: Record<SaverKind, string> = { media: "F075A", camera: "F07AE", slideshow: "F02E9", clock: "F0150" };
 export const MAX_PLAYERS = 4;
 // The clock's row of entities: the top bar's entity items, shown by their state, their icon or both, in the drawer the top
 // bar uses. At most four, in the order they stand on the glass after the temperature.
@@ -55,7 +55,7 @@ export const useScreensaverStore = defineStore("screensaver", () => {
   }
 
   // The steps in the order the screen tries them. A board without pictures shows the clock alone.
-  const savedOrder = computed<SaverKind[]>(() => saver.value?.order || ["media", "camera", "clock"]);
+  const savedOrder = computed<SaverKind[]>(() => saver.value?.order || ["media", "camera", "slideshow", "clock"]);
   function stepsShown(live: SaverKind[] | null) {
     const list = live || savedOrder.value;
     return saver.value?.pictures ? list : list.filter((kind) => kind === "clock");
@@ -84,6 +84,7 @@ export const useScreensaverStore = defineStore("screensaver", () => {
     ["", t(key("choose_camera"))] as const,
     ...entitiesOf("camera").map((e) => [e.id, e.area ? `${e.name} · ${e.area}` : e.name] as const),
   ]);
+  const slideshowChoices = computed(() => cameraChoices.value.filter(([id]) => !id || id.startsWith("camera.")));
   // The temperature under the clock (app 0.4.52): Home Assistant's own by default, one of your choice, or none.
   const weatherChoices = computed(() => [
     ["auto", t(key("weather_auto"))] as const,
@@ -122,6 +123,10 @@ export const useScreensaverStore = defineStore("screensaver", () => {
       if (!saver.value?.camera) return { text: t(key("summary.camera_none")), missing: true };
       return { text: entities.entityName(saver.value.camera) };
     }
+    if (kind === "slideshow") {
+      if (!saver.value?.slideshow) return { text: t(key("summary.camera_none")), missing: true };
+      return { text: entities.entityName(saver.value.slideshow) };
+    }
     const weather = saver.value?.weather ?? "auto";
     const first = weather === "auto" ? t(key("summary.temperature")) : weather ? entities.entityName(weather) : t(key("summary.time_date"));
     return { text: [first, ...saverItems.value.map((item) => topbar.topbarLabel(item))].join(", ") };
@@ -151,7 +156,7 @@ export const useScreensaverStore = defineStore("screensaver", () => {
   const clockCrumb = () => ({ text: saverLabel("clock"), open: () => insp.openSaverStep("clock") });
 
   return {
-    saver, saverReady, standbyOn, savedOrder, players, cameraChoices, weatherChoices, saverItems, weatherSource, glassRatio, clockPreview,
+    saver, saverReady, standbyOn, savedOrder, players, cameraChoices, slideshowChoices, weatherChoices, saverItems, weatherSource, glassRatio, clockPreview,
     // What the card and the drawers read as they draw (stores/lookup.ts).
     ...lookups({ isOn, stepsShown, entityPlace, entitiesOf, summary, clockCrumb }),
     changeSaver, toggleStep, moveStep, setPlayers, addPlayer, removePlayer, setSaverItems,

@@ -10,10 +10,19 @@
 // A touch wakes the screen, as it always did in standby, except on a player's three keys (firmware 0.33.0+): play or
 // pause and the volume work from the screensaver, and the screen stays in standby.
 #include <algorithm>
+#include <string>
 #include "media_card.h"
 
 namespace saver_view {
 using media_card::Rect;
+
+inline bool picture_kind(const std::string &kind) {
+  return kind == "media" || kind == "camera" || kind == "slideshow";
+}
+inline bool valid_kind(const std::string &kind) { return kind.empty() || kind == "clock" || picture_kind(kind); }
+inline std::string presentation(const std::string &kind, const std::string &fit, bool clock) {
+  return kind == "slideshow" ? kind + "|" + fit + (clock ? "|clock" : "|photo") : kind;
+}
 
 // How a cover lies on glass of this size: the same rule as camera_feed.saver_shape (SAVER_SQUARE, five to four),
 // guarded by tests/test_screen_saver.py.

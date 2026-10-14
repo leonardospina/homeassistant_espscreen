@@ -78,6 +78,21 @@ watch(() => screensaver.weatherSource, (id) => id && entities.loadLibraryStates(
       <small class="help">{{ T("camera_hint") }}</small>
     </Section>
 
+    <Section v-else-if="step === 'slideshow'" :title="saverLabel('slideshow')">
+      <p v-if="!screensaver.saver.slideshow_ready" class="hint" id="saver-slideshow-firmware">{{ T("slideshow_firmware") }}</p>
+      <UiSelect id="saver-slideshow" :model-value="screensaver.saver.slideshow ?? ''" :options="screensaver.slideshowChoices"
+        @update:model-value="(value: string) => screensaver.changeSaver({ slideshow: value })" />
+      <small class="help">{{ T("slideshow_hint") }}</small>
+      <label for="saver-slideshow-fit">{{ T("slideshow_fit") }}</label>
+      <UiSelect id="saver-slideshow-fit" :model-value="screensaver.saver.slideshow_fit ?? 'contain'"
+        :options="[['contain', T('slideshow_contain')], ['cover', T('slideshow_cover')]]"
+        @update:model-value="(value: string) => screensaver.changeSaver({ slideshow_fit: value as 'contain' | 'cover' })" />
+      <div id="saver-slideshow-clock">
+        <SwitchRow :label="T('slideshow_clock')" :model-value="screensaver.saver.slideshow_clock ?? false"
+          @update:model-value="(value: boolean) => screensaver.changeSaver({ slideshow_clock: value })" />
+      </div>
+    </Section>
+
     <template v-else>
       <Section :title="T('glass')">
         <SaverGlass :height="170" />

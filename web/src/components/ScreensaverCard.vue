@@ -46,6 +46,7 @@ function open(e: MouseEvent, kind: SaverKind) {
     <p v-else-if="!screensaver.standbyOn" class="hint">{{ t("editor.screen_settings.screensaver.standby_off") }}</p>
     <template v-if="screensaver.saverReady && screensaver.saver.show">
       <p class="saver-caption">{{ pictures ? t("editor.screen_settings.screensaver.lead") : t("editor.screen_settings.screensaver.no_pictures") }}</p>
+      <p v-if="pictures && !screensaver.saver.slideshow_ready" class="hint">{{ t("editor.screen_settings.screensaver.slideshow_firmware") }}</p>
       <div class="saver-list" id="screensaver-steps" role="list" :aria-label="t('editor.screen_settings.screensaver.lead')">
         <div v-for="(kind, i) in order" :key="kind" class="saver-row" role="listitem" tabindex="0" :data-kind="kind"
           :class="{ off: !screensaver.isOn(kind), opened: opened(kind), dragging: steps.drag.value.active && steps.drag.value.index === i, still: !pictures }"

@@ -141,11 +141,12 @@ export type UpdateInfo = {
 // The screensaver (app 0.4.48): a player, a camera and the order the screen tries them in, the clock a step of its own.
 // `ready`: the screen's firmware takes one; `pictures`: its board draws pictures, else the clock alone; `standby`: it
 // goes into standby at all.
-export type SaverKind = "media" | "camera" | "clock";
+export type SaverKind = "media" | "camera" | "slideshow" | "clock";
 // `weather` (app 0.4.52): the temperature under the clock, "auto" for Home Assistant's first weather entity, "" for none.
 // `more` (app 0.4.54): the players the music step tries after `media`, in their order.
-export type ScreensaverChoice = { show: boolean; media: string; camera: string; order: SaverKind[]; off: SaverKind[]; weather?: string; more?: string[]; items?: HeaderItem[] };
-export type ScreensaverView = ScreensaverChoice & { ready: boolean; pictures: boolean; standby: boolean };
+export type ScreensaverChoice = { show: boolean; media: string; camera: string; order: SaverKind[]; off: SaverKind[]; weather?: string; more?: string[]; items?: HeaderItem[];
+  slideshow?: string; slideshow_fit?: "contain" | "cover"; slideshow_clock?: boolean };
+export type ScreensaverView = ScreensaverChoice & { ready: boolean; pictures: boolean; standby: boolean; slideshow_ready?: boolean };
 export type SettingsView = { owner: string; keys: string[]; values: Record<string, any>; unavailable: string[]; rotations?: number[]; switches?: string[]; calibrate?: boolean };
 // The two ways a screen can hang (app 0.2.107), chosen when it is built: lying down or standing up. A board's own
 // numbers for each way come from boards.json, which the add-on serves with the firmware status.

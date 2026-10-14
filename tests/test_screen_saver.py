@@ -35,11 +35,62 @@ PLAYING = {'state': 'playing', 'attributes': {'friendly_name': 'Living room', 'm
 DOOR = {'state': 'idle', 'attributes': {'friendly_name': 'Front door'}}
 CHOICE = {'show': True, 'media': PLAYER, 'camera': CAMERA, 'order': ['media', 'camera', 'clock'], 'off': [], 'weather': 'auto', 'more': [], 'items': []}
 
+class SlideshowChoice(unittest.TestCase):
+    def test_legacy_file_migrates_and_new_choice_survives_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'screensavers.json'
+            legacy = {**CHOICE, 'more': ['media_player.office'], 'off': ['camera'], 'weather': 'weather.home',
+                      'items': [{'type': 'entity', 'entity': 'sensor.office', 'content': 'state', 'icon': 'auto', 'show': 'always'}]}
+            path.write_text(json.dumps({'version': 1, 'screens': {'d1': legacy}}))
+            savers = screen_saver.ScreenSavers(path)
+            migrated = savers.get('d1')
+            self.assertEqual(migrated, screen_saver.validate(legacy))
+            changed = {**migrated, 'slideshow': CAMERA, 'slideshow_fit': 'cover', 'slideshow_clock': True}
+            savers.set('d1', changed)
+            self.assertEqual(screen_saver.ScreenSavers(path).get('d1'), changed)
+
+    def test_legacy_order_is_extended_without_reordering_existing_steps(self):
+        for order in (['media', 'camera', 'clock'], ['clock', 'camera', 'media']):
+            legacy = {**CHOICE, 'order': order, 'off': ['camera']}
+            normalized = screen_saver.validate(legacy)
+            self.assertEqual([k for k in normalized['order'] if k != 'slideshow'], order)
+            self.assertEqual(normalized['order'].index('slideshow') + 1, normalized['order'].index('clock'))
+            self.assertEqual((normalized['slideshow'], normalized['slideshow_fit'], normalized['slideshow_clock']),
+                             ('', 'contain', False))
+            self.assertEqual(normalized['off'], ['camera'])
+            self.assertEqual(screen_saver.validate(normalized), normalized)
+
+    def test_source_presentation_and_strict_options(self):
+        choice = screen_saver.validate({'show': True, 'slideshow': CAMERA, 'slideshow_fit': 'cover', 'slideshow_clock': True})
+        self.assertEqual(choice['slideshow'], CAMERA)
+        self.assertIn(CAMERA, screen_saver.entities(choice))
+        for patch in ({'slideshow': 'image.photo'}, {'slideshow': 'sensor.photo'}, {'slideshow': None},
+                      {'slideshow_fit': 'stretch'}, {'slideshow_fit': None}, {'slideshow_clock': 1},
+                      {'slideshow_clock': 'false'}, {'slideshow_interval': 10}):
+            with self.assertRaises(ValueError, msg=patch):
+                screen_saver.validate(patch)
+
+    def test_negotiation_fallback_and_private_frame_revision(self):
+        choice = screen_saver.validate({'show': True, 'slideshow': CAMERA})
+        states = {CAMERA: DOOR}
+        self.assertEqual(screen_saver.message(choice, states, True, short, media_extras)['k'], 'clock')
+        said = screen_saver.message(choice, states, True, short, media_extras, slideshow=True)
+        self.assertEqual((said['k'], said['e'], said['fit'], said['clock']), ('slideshow', CAMERA, 'contain', False))
+        from core import revision
+        self.assertEqual(said['x'], {'pic': revision(DOOR)})
+        changed = {**DOOR, 'attributes': {**DOOR['attributes'], 'entity_picture': '/private?token=secret'}}
+        newer = screen_saver.message(choice, {CAMERA: changed}, True, short, media_extras, slideshow=True)
+        self.assertNotEqual(said['x']['pic'], newer['x']['pic'])
+        self.assertNotIn('secret', json.dumps(newer))
+        for state in ({}, {CAMERA: {'state': 'unavailable'}}, {CAMERA: {'state': 'unknown'}}):
+            self.assertEqual(screen_saver.message(choice, state, True, short, media_extras, slideshow=True)['k'], 'clock')
+        self.assertEqual(screen_saver.message(choice, states, False, short, media_extras, slideshow=True)['k'], 'clock')
+
 
 class Choice(unittest.TestCase):
     def test_a_choice_is_checked_and_filled_in(self):
         self.assertEqual(screen_saver.validate({}), screen_saver.DEFAULT)
-        self.assertEqual(screen_saver.validate({'show': True})['order'], ['media', 'camera', 'clock'])
+        self.assertEqual(screen_saver.validate({'show': True})['order'], ['media', 'camera', 'slideshow', 'clock'])
         for wrong in ({'show': 'yes'}, {'media': 'camera.front'}, {'camera': 'media_player.x'}, {'media': 'Media Player'},
                       {'order': ['media', 'clock']}, {'order': ['media', 'media', 'clock']}, {'off': ['tv']}, {'colour': 1}, None):
             with self.assertRaises(ValueError, msg=wrong):
@@ -93,7 +144,7 @@ class Choice(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'screensavers.json'
             path.write_text(json.dumps({'version': 1, 'screens': {'d1': {key: CHOICE[key] for key in CHOICE if key != 'more'}}}))
-            self.assertEqual(screen_saver.ScreenSavers(path).get('d1'), CHOICE)
+            self.assertEqual(screen_saver.ScreenSavers(path).get('d1'), screen_saver.validate(CHOICE))
 
     def test_a_player_whose_cover_does_not_come_gives_way(self):
         """GitHub #229: a player that plays with an `entity_picture` the app cannot fetch (an HTTP error, the string
@@ -244,10 +295,10 @@ class Choice(unittest.TestCase):
             savers = screen_saver.ScreenSavers(path)
             self.assertEqual(savers.get('d1'), screen_saver.DEFAULT)
             savers.set('d1', CHOICE)
-            self.assertEqual(screen_saver.ScreenSavers(path).get('d1'), CHOICE)
+            self.assertEqual(screen_saver.ScreenSavers(path).get('d1'), screen_saver.validate(CHOICE))
             self.assertEqual(json.loads(path.read_text())['version'], 1)
             savers.get('d1')['order'].reverse()
-            self.assertEqual(savers.get('d1')['order'], CHOICE['order'], 'a copy, never the kept choice')
+            self.assertEqual(savers.get('d1')['order'], screen_saver.validate(CHOICE)['order'], 'a copy, never the kept choice')
             savers.set('d1', {})
             self.assertNotIn('d1', screen_saver.ScreenSavers(path).choices, 'the default is not written down')
             path.write_text('{"version": 1, "screens": {"d2": {"show": "x"}}}')
@@ -279,6 +330,16 @@ class Picture(unittest.TestCase):
         for point in ((2, 2), (240, 240), (477, 477)):
             self.assertTrue(120 <= image.getpixel(point)[0] <= 160, image.getpixel(point))
 
+    def test_slideshow_contain_cover_and_optional_dimming(self):
+        raw = self.picture((400, 200))
+        contain = self.open(camera_feed.encode_saver(raw, (200, 200), 'slideshow'))
+        self.assertEqual(contain.getpixel((100, 2)), (0, 0, 0))
+        self.assertGreater(contain.getpixel((100, 100))[0], 185)
+        cover = self.open(camera_feed.encode_saver(raw, (200, 200), 'slideshow', fit='cover'))
+        self.assertGreater(cover.getpixel((100, 2))[0], 185)
+        dim = self.open(camera_feed.encode_saver(raw, (200, 200), 'slideshow', clock=True))
+        self.assertTrue(120 <= dim.getpixel((100, 100))[0] <= 160)
+
     def test_a_cover_fills_square_glass_and_stands_beside_its_colour_on_long_glass(self):
         import camera_feed
         cover = self.picture((640, 640), (240, 240, 240))
@@ -303,7 +364,75 @@ class Picture(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_AIOHTTP, 'Run using .venv-portal/bin/python for server tests')
+class SlideshowFeed(unittest.IsolatedAsyncioTestCase):
+    async def test_presentation_links_etags_and_current_snapshots(self):
+        from unittest.mock import AsyncMock
+        fetch = AsyncMock(return_value=Picture().picture((400, 200)))
+        feed = camera_feed.CameraFeed(fetch)
+        tokens = [feed.link(CAMERA, (200, 200), saver=('slideshow', 0, fit, clock))
+                  for fit, clock in (('contain', False), ('cover', False), ('contain', True))]
+        results = [await feed.serve(token) for token in tokens]
+        self.assertEqual([r[0] for r in results], [200, 200, 200])
+        self.assertEqual(len({r[2] for r in results}), 3)
+        self.assertEqual(len({r[1] for r in results}), 3)
+        self.assertEqual(len(feed.watch(CAMERA).frames), 3)
+        self.assertEqual((await feed.serve(tokens[0], results[0][2]))[0], 304)
+        self.assertEqual(fetch.await_count, 4, 'each visible load asks HA for its current snapshot')
+        fetch.return_value = Picture().picture((400, 200), (100, 150, 200))
+        changed = await feed.serve(tokens[0], results[0][2])
+        self.assertEqual(changed[0], 200)
+        self.assertNotEqual(changed[2], results[0][2])
+        self.assertIsNone(feed.watch(CAMERA).ahead, 'no background prefetch after hiding the slideshow')
+        fetch.side_effect = RuntimeError('snapshot failed')
+        self.assertEqual(await feed.serve(tokens[0]), (503, None, ''))
+        self.assertIsNotNone(feed.watch(CAMERA).raw, 'failure does not discard the last good snapshot')
+        fetch.side_effect = None
+        self.assertEqual((await feed.serve(tokens[0]))[0], 200, 'the existing loader can retry the link')
+
+
+@unittest.skipUnless(HAS_AIOHTTP, 'Run using .venv-portal/bin/python for server tests')
 class TheApp(unittest.IsolatedAsyncioTestCase):
+    async def test_slideshow_negotiation_subscription_and_exact_source_authorization(self):
+        from unittest.mock import AsyncMock, patch
+        with tempfile.TemporaryDirectory() as tmp:
+            ha = with_screen_grid(self.ha())
+            ha.request = None
+            m = Manager(ha, Path(tmp) / 'screens.json')
+            screen = m.screen('text.d1_tiles')
+            screen['online'] = True
+            choice = {'show': True, 'slideshow': CAMERA, 'slideshow_fit': 'cover', 'slideshow_clock': True,
+                      'camera': 'camera.other', 'media': PLAYER}
+            m.savers.set('d1', choice)
+            class Sender:
+                features = {screen_saver.FEATURE}
+            sender = m.page_senders['text.d1_tiles'] = Sender()
+            ha.states[PLAYER] = {'state': 'idle'}
+            self.assertIn(CAMERA, m.watched_entities())
+            self.assertEqual(m.saver_message(screen)['k'], 'clock')
+            self.assertFalse(m.slideshow_ready(screen))
+            sender.features.add('saver_slideshow')
+            self.assertTrue(m.slideshow_ready(screen))
+            with patch.object(camera_feed, 'box', return_value=None):
+                self.assertFalse(m.slideshow_ready(screen))
+            self.assertEqual(m.saver_message(screen)['k'], 'slideshow')
+            m.transport = lambda *args: 'esphome.d1_tiles'
+            m.send_auxiliary = AsyncMock()
+            m.camera.saver = AsyncMock(return_value=('tag', b'bmp'))
+            with patch.object(camera_feed, 'base_url', AsyncMock(return_value='http://addon:8098')):
+                for entity in (PLAYER, 'camera.other', 'camera.not_configured'):
+                    await m.answer_camera({'inbox': 'text.d1_tiles', 'saver': 'slideshow', 'entity': entity})
+                m.camera.saver.assert_not_awaited()
+                await m.answer_camera({'inbox': 'text.d1_tiles', 'saver': 'slideshow', 'entity': CAMERA,
+                                       'fit': 'contain', 'clock': False})
+                m.camera.saver.assert_awaited_once()
+                self.assertEqual(m.camera.saver.call_args.kwargs, {'fit': 'cover', 'clock': True})
+                token = next(iter(m.camera.links))
+                self.assertEqual(m.camera.links[token].saver, ('slideshow', 0, 'cover', True))
+                sender.features.clear()
+                m.camera.saver.reset_mock()
+                await m.answer_camera({'inbox': 'text.d1_tiles', 'saver': 'slideshow', 'entity': CAMERA})
+                m.camera.saver.assert_not_awaited()
+
     def ha(self, firmware='0.29.0'):
         class HA:
             online = True

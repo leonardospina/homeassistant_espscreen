@@ -1,5 +1,6 @@
 // clang++ -std=c++17 -Wall -Wextra -Werror -I. tests/test_picture_loader.cpp -o /tmp/test_picture_loader && /tmp/test_picture_loader
 #include "../components/smart_display/picture_loader.h"
+#include "../components/smart_display/saver_view.h"
 #include <cassert>
 #include <cstdio>
 #include <map>
@@ -43,6 +44,46 @@ static const Owner CARD{Kind::CARD, 0}, VIEW{Kind::VIEW, 0}, ALERT{Kind::ALERT, 
 static Owner tile(uint32_t n) { return {Kind::TILE, n}; }
 
 int main() {
+  // Native slideshow frames and presentation changes bypass the periodic refresh; failures keep the last image,
+  // and leaving standby cancels the outstanding request instead of loading behind the page.
+  {
+    Bench b;
+    std::string shown;
+    auto round = [&](uint32_t t, const std::string &mark, const std::string &fit = "contain", bool clock = false) {
+      b.loader.begin();
+      const auto key = "camera|album|saver|" + saver_view::presentation("slideshow", fit, clock) + "|" + mark;
+      auto want = b.want(key, "saver|album", Rank::VIEW, Slot::FULL, 4000);
+      want.done = [&, key](Outcome o) { if (o == Outcome::LOADED) shown = key; };
+      b.loader.want(VIEW, want);
+      b.loader.end(t, true);
+    };
+    round(1000, "frame1");
+    b.loader.answer("saver|album", "http://app/photo", 1100);
+    round(1200, "frame1");
+    b.finish(Slot::FULL, true, 1400);
+    const auto first = shown;
+    round(1500, "frame2");
+    assert(b.asked.size() == 2 && shown == first);
+    b.loader.answer("saver|album", "http://app/photo2", 1600);
+    round(2400, "frame2");
+    b.finish(Slot::FULL, false, 2500);
+    assert(shown == first);
+    round(3500, "frame2");
+    b.finish(Slot::FULL, true, 3600);
+    assert(shown != first);
+    round(3700, "frame2", "cover", true);
+    assert(b.asked.size() == 3);
+    b.loader.answer("saver|album", "http://app/overlay", 3800);
+    round(4700, "frame2", "cover", true);
+    const auto before = shown;
+    assert(b.loader.busy());
+    b.loader.release(VIEW);
+    assert(!b.loader.busy() && !b.cancels.empty());
+    b.finish(Slot::FULL, true, 4800);
+    assert(shown == before);
+    b.loader.begin(); b.loader.end(20000, true);
+    assert(b.asked.size() == 3 && b.loader.size() == 0);
+  }
   // A card's cover: asked for at once, loaded once its link is here, and then it is simply there.
   {
     Bench b;

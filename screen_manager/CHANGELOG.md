@@ -1,5 +1,10 @@
 ## Unreleased
 
+- **Native slideshow in standby.** Choose a Home Assistant photo camera under Screensaver's new Slideshow step.
+  Photos stay whole on black and are not darkened by default; choose Cover or turn on the optional clock and date.
+  Home Assistant keeps control of order and interval, including a 10-second Album Slideshow interval. Rebuild the
+  screen to enable the native mode; older firmware keeps using the existing steps. No Picture Frame plugin is needed.
+  Keep Album Slideshow's Pause when not viewed off, since camera snapshots do not count as viewing it.
 - **Firmware from a fork stays together.** A screen's `GITHUB_REPOSITORY` and `GITHUB_REF` can select the same fork
   and branch for its components and fonts as its board package. The app recognises the board of an explicitly
   configured fork profile without moving it to an upstream release. This lets Waveshare LCD 4 testers combine the

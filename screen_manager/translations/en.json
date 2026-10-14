@@ -2416,6 +2416,7 @@
         "kinds": {
           "media": "Music playing",
           "camera": "Camera",
+          "slideshow": "Slideshow",
           "clock": "Clock"
         },
         "summary": {
@@ -2437,6 +2438,12 @@
         "keys_hint": "Play, pause and the volume work on the screensaver. A tap anywhere else wakes the screen.",
         "choose_camera": "Choose a camera",
         "camera_hint": "Its picture, every 15 seconds",
+        "slideshow_firmware": "Rebuild this screen with slideshow screensaver support to show it. Until then, the next available step shows.",
+        "slideshow_hint": "Choose an Album Slideshow camera. Home Assistant controls the photos, order and interval. Keep Pause when not viewed off in Home Assistant.",
+        "slideshow_fit": "Picture fit",
+        "slideshow_contain": "Contain, show the whole picture",
+        "slideshow_cover": "Cover, fill the screen",
+        "slideshow_clock": "Show time and date over photos",
         "glass": "On the screen",
         "temperature": "Temperature",
         "weather_auto": "Automatic",

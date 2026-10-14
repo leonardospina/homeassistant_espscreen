@@ -28,6 +28,18 @@ function open(patch: Partial<ScreensaverChoice> = {}) {
 }
 
 describe("the screensaver's steps", () => {
+  it("saves slideshow presentation, priority and enabled state without losing legacy settings", async () => {
+    const { saver, api } = open({ order: ["media", "camera", "slideshow", "clock"], weather: "weather.home" });
+    saver.changeSaver({ slideshow: "camera.door", slideshow_fit: "cover", slideshow_clock: true });
+    saver.moveStep("slideshow", -1);
+    saver.toggleStep("slideshow", false);
+    expect(saver.savedOrder).toEqual(["media", "slideshow", "camera", "clock"]);
+    expect(saver.summary("slideshow")).toEqual({ text: "door" });
+    expect(api.asked("PUT screens/:id/screensaver").at(-1)!.body.screensaver).toMatchObject({
+      slideshow: "camera.door", slideshow_fit: "cover", slideshow_clock: true,
+      order: ["media", "slideshow", "camera", "clock"], off: ["slideshow"], weather: "weather.home",
+    });
+  });
   it("turns a step off and on, moves it, and shows only the clock on a board without pictures", () => {
     const { saver, api } = open();
     saver.toggleStep("camera");

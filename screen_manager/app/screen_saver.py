@@ -28,6 +28,7 @@ FEATURE = 'screensaver'
 KEYS_FEATURE = 'saver_keys'
 # A screen that draws the clock's row of entities (firmware 0.50.0+, app 0.4.81): `wi` in the message.
 ITEMS_FEATURE = 'saver_items'
+SLIDESHOW_FEATURE = 'saver_slideshow'
 # How long a paused player keeps the screensaver. A speaker stays "paused" in Home Assistant for days, and the camera
 # or the clock after it would never show again.
 PAUSED_SECONDS = 600
@@ -35,8 +36,9 @@ PAUSED_SECONDS = 600
 # the screensaver itself, and its play key must still be there for the finger that pressed it. After that a player that
 # plays goes first again.
 HELD_SECONDS = 120
-KINDS = ('media', 'camera', 'clock')
-PICTURE_KINDS = frozenset(('media', 'camera'))
+LEGACY_KINDS = ('media', 'camera', 'clock')
+KINDS = ('media', 'camera', 'slideshow', 'clock')
+PICTURE_KINDS = frozenset(('media', 'camera', 'slideshow'))
 # `weather` (app 0.4.52): whose temperature the clock shows under the time. 'auto' takes Home Assistant's first weather
 # entity that reports one, '' shows none, and a weather entity of your choice is that one.
 # `more` (app 0.4.54): the players the music step tries after `media`, in their order. The step shows the first of them
@@ -44,11 +46,11 @@ PICTURE_KINDS = frozenset(('media', 'camera'))
 # `items` (app 0.4.81): entities the clock shows beside the temperature, in one centred row: the top bar's entity items,
 # each with its state or its icon alone (content `state` or `icon`, with the icon `auto`, `none` or a named one).
 DEFAULT = {'show': False, 'media': '', 'camera': '', 'order': list(KINDS), 'off': [], 'weather': 'auto', 'more': [],
-           'items': []}
+           'items': [], 'slideshow': '', 'slideshow_fit': 'contain', 'slideshow_clock': False}
 ITEMS_MAX = 4
 MORE_PLAYERS = 3
 ENTITY = re.compile(r'[a-z0-9_]+\.[a-z0-9_]+')
-DOMAINS = {'media': ('media_player',), 'camera': ('camera', 'image')}
+DOMAINS = {'media': ('media_player',), 'camera': ('camera', 'image'), 'slideshow': ('camera',)}
 # What a player does while its cover counts: playing, as Home Assistant's own media card shows its art.
 PLAYING = frozenset(('playing',))
 PAUSED = frozenset(('paused',))
@@ -64,12 +66,19 @@ def validate(value):
         if not isinstance(value['show'], bool):
             raise ValueError('screensaver show')
         result['show'] = value['show']
-    for kind in ('media', 'camera'):
+    for kind in ('media', 'camera', 'slideshow'):
         entity = value.get(kind, '')
         if not isinstance(entity, str) or (entity and (len(entity) > 120 or not ENTITY.fullmatch(entity)
                                                         or entity.split('.')[0] not in DOMAINS[kind])):
             raise ValueError(f'screensaver {kind}')
         result[kind] = entity
+    fit = value.get('slideshow_fit', 'contain')
+    if not isinstance(fit, str) or fit not in ('contain', 'cover'):
+        raise ValueError('screensaver slideshow_fit')
+    clock = value.get('slideshow_clock', False)
+    if not isinstance(clock, bool):
+        raise ValueError('screensaver slideshow_clock')
+    result.update(slideshow_fit=fit, slideshow_clock=clock)
     if 'more' in value:
         more = value['more']
         if not isinstance(more, list) or len(more) > MORE_PLAYERS or len(set(more)) != len(more) or any(
@@ -87,9 +96,12 @@ def validate(value):
         result['items'] = valid_items(value['items'])
     if 'order' in value:
         order = value['order']
-        if not isinstance(order, list) or sorted(order) != sorted(KINDS):
+        if not isinstance(order, list) or any(not isinstance(kind, str) for kind in order) \
+                or sorted(order) not in (sorted(KINDS), sorted(LEGACY_KINDS)):
             raise ValueError('screensaver order')
         result['order'] = list(order)
+        if 'slideshow' not in order:
+            result['order'].insert(result['order'].index('clock'), 'slideshow')
     if 'off' in value:
         off = value['off']
         if not isinstance(off, list) or any(kind not in KINDS for kind in off) or len(set(off)) != len(off):
@@ -182,7 +194,7 @@ def player(choice, states, keys=False, now=None, held='', broken=()):
 
 def entities(choice, states=None):
     """The entities a choice follows; with the states, also the weather entity its clock reads."""
-    found = set(players(choice)) | ({choice['camera']} if choice.get('camera') else set())
+    found = set(players(choice)) | {choice[kind] for kind in ('camera', 'slideshow') if choice.get(kind)}
     weather = weather_entity(choice, states) if states is not None and choice.get('show') else ''
     shown = {item['entity'] for item in choice.get('items') or ()} if choice.get('show') else set()
     return found | ({weather} if weather else set()) | shown
@@ -200,23 +212,26 @@ def available(kind, choice, states, pictures, keys=False, now=None, held='', bro
     return bool(choice.get(kind)) and (states.get(choice[kind]) or {}).get('state', '') not in GONE
 
 
-def pick(choice, states, pictures, keys=False, now=None, held='', broken=()):
+def pick(choice, states, pictures, keys=False, now=None, held='', broken=(), slideshow=False):
     """The first step of the order that is on and available, or '' for none (standby shows the dimmed tiles as before)."""
     if not choice or not choice.get('show'):
         return ''
     for kind in choice.get('order', KINDS):
+        if kind == 'slideshow' and not slideshow:
+            continue
         if kind not in choice.get('off', ()) and available(kind, choice, states, pictures, keys, now, held, broken):
             return kind
     return ''
 
 
-def message(choice, states, pictures, short, media_extras, ground=None, keys=False, now=None, held='', bar=None, broken=()):
+def message(choice, states, pictures, short, media_extras, ground=None, keys=False, now=None, held='', bar=None, broken=(),
+            slideshow=False):
     """The screen message for what the screensaver shows now. `short(text, n)` cuts a text the way every message does,
     `media_extras(attrs)` is the media card's (core.media_extras), `ground(entity, attrs)` the cover's colours, `keys`
     whether the screen's screensaver has keys (KEYS_FEATURE), `held` the player it shows now, `bar(item)` the top bar's
     wire item for one of the clock's entity items (header_bar.entity_item), or None for a screen that takes none,
     `broken` the players whose cover could not be fetched (player)."""
-    kind = pick(choice, states, pictures, keys, now, held, broken)
+    kind = pick(choice, states, pictures, keys, now, held, broken, slideshow)
     result = {'op': 'saver', 'k': kind}
     if kind == 'clock':
         # The outside temperature under the time (app 0.4.52, firmware 0.31.0+); older firmware reads past it.
@@ -237,6 +252,10 @@ def message(choice, states, pictures, short, media_extras, ground=None, keys=Fal
     state = states.get(entity) or {}
     attrs = state.get('attributes') or {}
     result['e'] = entity
+    if kind == 'slideshow':
+        result.update(fit=choice.get('slideshow_fit', 'contain'), clock=choice.get('slideshow_clock', False),
+                      x={'pic': core.revision(state)})
+        return result
     name = attrs.get('friendly_name')
     result['n'] = short(name, 60) if isinstance(name, str) and name.strip() else entity.split('.', 1)[1]
     if kind == 'media':

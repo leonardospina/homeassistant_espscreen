@@ -223,11 +223,13 @@ inline bool awake() { return !screen_awake || screen_awake(); }
 // is not awake, everything else keeps waiting for a touch.
 inline bool saver_pictures = false;
 inline bool pictures_awake() { return awake() || saver_pictures; }
-// What ESP Screen Manager says the screensaver shows (op "saver", screen_saver.py): "media", "camera", "clock" or ""
+// What ESP Screen Manager says the screensaver shows (op "saver", screen_saver.py): media, camera, slideshow, clock or ""
 // for none, with the player's or camera's name and, for a player, its title, artist and album, its picture's mark and
 // the cover's colour (the picture is made again when either changes). Where the track is, is no part of it.
 struct SaverChoice {
   std::string kind, entity, name, title, artist, album, picture, ground;
+  std::string fit = "contain";
+  bool clock = false;
   std::string weather;  // the clock's outside temperature, ready to draw (firmware 0.31.0+, app 0.4.52)
   // The clock's row of entities, the temperature first (firmware 0.50.0+, app 0.4.81): an icon and a text each.
   std::vector<header_bar::Item> row;
@@ -238,7 +240,7 @@ struct SaverChoice {
   bool operator==(const SaverChoice &o) const {
     return kind == o.kind && entity == o.entity && name == o.name && title == o.title && artist == o.artist &&
            album == o.album && picture == o.picture && ground == o.ground && weather == o.weather && row == o.row &&
-           state == o.state && features == o.features && muted == o.muted;
+           state == o.state && features == o.features && muted == o.muted && fit == o.fit && clock == o.clock;
   }
 };
 inline SaverChoice saver_next, saver_now;  // the app's latest word, and what the glass shows
@@ -11742,7 +11744,7 @@ inline std::string camera_key() {
   if (camera_map_index >= 0) key += "|" + map_focus + (theme::dark ? "|dark" : "") + (map_move.none() ? "" : "|" + map_move.text());
   // The cover's colour only shows beside a cover on long glass (saver_view::shape): on square glass it is no new picture.
   if (saver_camera) {
-    key += "|saver|" + saver_now.picture;
+    key += "|saver|" + saver_view::presentation(saver_now.kind, saver_now.fit, saver_now.clock) + "|" + saver_now.picture;
     if (saver_view::shape(overlay_card::screen_width(), overlay_card::screen_height()) != saver_view::Shape::fill) key += "|" + saver_now.ground;
   }
   return key;
@@ -12044,7 +12046,7 @@ constexpr uint32_t SAVER_CAMERA_MS = 15000;
 
 inline bool saver_wanted() {
   const auto &kind = saver_next.kind;
-  return kind == "clock" || ((kind == "media" || kind == "camera") && camera_supported() && valid_entity(saver_next.entity));
+  return kind == "clock" || (saver_view::picture_kind(kind) && camera_supported() && valid_entity(saver_next.entity));
 }
 inline lv_obj_t *saver_text(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const media_card::Rect &r, const std::string &text,
                             lv_text_align_t align = LV_TEXT_ALIGN_CENTER) {
@@ -12157,6 +12159,13 @@ inline saver_view::Keys saver_key_layout() {
 }
 // The words over the picture, once it is there: a cover's title with its artist and album, a camera's name alone, in
 // white over the darkened picture or the cover's colour.
+inline void saver_overlay_text() {
+  if (!saver_lit || !saver_camera || saver_now.kind != "slideshow" || !saver_now.clock) return;
+  const auto now = now_time ? now_time() : esphome::ESPTime{};
+  const auto period = am_pm(now);
+  if (saver_first) label(saver_first, time_text(now) + (period.empty() ? "" : " " + period));
+  if (saver_second) label(saver_second, date_text(now));
+}
 inline void saver_words() {
   if (!camera_root || !saver_camera) return;
   const auto &c = saver_now;
@@ -12165,6 +12174,29 @@ inline void saver_words() {
   const int margin = ui::px(large ? 28 : 12), gap = ui::px(large ? 4 : 2);
   const lv_font_t *first_font = watch_font ? watch_font : detail_font;
   const lv_font_t *second_font = control_font ? control_font : detail_font;
+  if (c.kind == "slideshow") {
+    saver_words_due = false;
+    saver_keys_draw();
+    if (!c.clock) {
+      for (lv_obj_t **words : {&saver_first, &saver_second}) if (*words) { lv_obj_delete(*words); *words = nullptr; }
+      return;
+    }
+    const auto w = saver_view::words(saver_view::Shape::fill, width, height, margin,
+                                    first_font ? lv_font_get_line_height(first_font) : 24,
+                                    second_font ? lv_font_get_line_height(second_font) : 20, gap);
+    auto place = [&](lv_obj_t *&word, const lv_font_t *font, const media_card::Rect &r) {
+      if (!word) word = saver_text(camera_root, font, media_ink(), r, "", LV_TEXT_ALIGN_LEFT);
+      else {
+        if (font) set_font(word, font);
+        lv_obj_set_pos(word, r.x, r.y);
+        lv_obj_set_size(word, r.w, r.h);
+      }
+    };
+    place(saver_first, first_font, w.first);
+    place(saver_second, second_font, w.second);
+    saver_overlay_text();
+    return;
+  }
   const bool media = c.kind == "media";
   const std::string first = media && !c.title.empty() ? c.title : c.name;
   const std::string second = media ? media_card::subtitle(c.artist, c.album) : std::string();
@@ -12323,7 +12355,7 @@ inline void saver_show() {
     lv_obj_move_to_index(camera_root, 0);
     // A camera refreshes at its pace; a cover loads once, and a new track is a new picture (saver_sync).
     if (saver_now.kind == "media") camera.once = true;
-    else camera.every = SAVER_CAMERA_MS;
+    else camera.every = saver_now.kind == "slideshow" ? camera_view::REFRESH_MS : SAVER_CAMERA_MS;
     ESP_LOGI("saver", "%s %s", saver_now.kind.c_str(), saver_now.entity.c_str());
     return;
   }
@@ -12346,7 +12378,8 @@ inline void saver_follow() {
   // The cover's colour only shows beside a cover on long glass (saver_view::shape): on square glass it is no new picture.
   const bool ground_shows = saver_view::shape(overlay_card::screen_width(), overlay_card::screen_height()) != saver_view::Shape::fill;
   if (saver_next.kind == saver_now.kind && saver_next.entity == saver_now.entity && saver_next.picture == saver_now.picture &&
-      (saver_next.ground == saver_now.ground || !ground_shows)) {
+      (saver_next.ground == saver_now.ground || !ground_shows) &&
+      saver_next.fit == saver_now.fit && saver_next.clock == saver_now.clock) {
     saver_now = saver_next;
     if (!saver_words_due) saver_words();
     else saver_keys_draw();
@@ -12358,14 +12391,14 @@ inline void saver_follow() {
   saver_keys_draw();  // the keys are the next player's at once; its words wait for its picture
   camera.open(saver_now.entity);
   if (saver_now.kind == "media") camera.once = true;
-  else camera.every = SAVER_CAMERA_MS;
+  else camera.every = saver_now.kind == "slideshow" ? camera_view::REFRESH_MS : SAVER_CAMERA_MS;
   saver_words_due = true;
   ESP_LOGI("saver", "%s %s, the last picture stays until it comes", saver_now.kind.c_str(), saver_now.entity.c_str());
 }
 inline void saver_follow_pending() {
   if (!std::exchange(saver_follow_due, false)) return;
   if (saver_lit && saver_camera && camera_root && camera_picture && !(saver_next == saver_now) &&
-      (saver_next.kind == "media" || saver_next.kind == "camera")) saver_follow();
+      saver_view::picture_kind(saver_next.kind)) saver_follow();
 }
 // apply_screen_settings, after every change and every minute: `lit` is standby with a backlight that is on.
 inline void saver_sync(bool lit) {
@@ -12374,7 +12407,7 @@ inline void saver_sync(bool lit) {
   if (!lit || !saver_wanted()) { if (shown) saver_hide(); return; }
   // The camera and the cover stand as they are while nothing changed; the clock is drawn again, a minute later.
   if (shown && saver_next == saver_now && saver_now.kind != "clock") return;
-  if (saver_camera && camera_root && camera_picture && (saver_next.kind == "media" || saver_next.kind == "camera")) { saver_follow(); return; }
+  if (saver_camera && camera_root && camera_picture && saver_view::picture_kind(saver_next.kind)) { saver_follow(); return; }
   saver_hide();
   saver_show();
 }
@@ -12407,6 +12440,7 @@ inline void saver_tick(uint32_t now) {
   }
   // Gone under it (a new layout, an alert that closed the camera): drawn again.
   if (saver_lit && !saver_root && !saver_camera && saver_wanted()) saver_show();
+  if (!saver_words_due) saver_overlay_text();
 }
 
 // ---------------------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # The screensaver
 
 A screen can show something when Auto standby dims it, instead of the dimmed tiles: the cover of the music that plays, a
-camera, or a large clock with the date. Each screen has its own choice, and you put the three in the order the screen
+camera, a photo slideshow, or a large clock with the date. Each screen has its own choice, and you put the four in the order the screen
 tries them. It shows the first one that is there right now. It needs app 0.4.48 and firmware 0.29.0.
 
 ## Using it
@@ -9,9 +9,10 @@ tries them. It shows the first one that is there right now. It needs app 0.4.48 
 1. In Tessera, open the screen and go to **Settings**. The **Screensaver** card stands under Brightness.
 2. Turn on **Show in standby**. The screen also needs **Auto standby** on, since the screensaver takes the place of
    the dimmed tiles.
-3. The card lists the three steps in the order the screen tries them, each with one line of what it shows and a
+3. The card lists the four steps in the order the screen tries them, each with one line of what it shows and a
    switch. Click a step to open it in the drawer on the right (a sheet from the bottom on a phone): choose the media
-   players under **Music playing**, a camera under **Camera**, and the temperature and the entities under **Clock**.
+   players under **Music playing**, a camera under **Camera**, a photo camera under **Slideshow**, and the temperature
+   and the entities under **Clock**.
    An `image` entity counts as a camera too, such as the last snapshot a doorbell keeps.
 4. Drag the steps into the order you want, or move the open step with the arrows at the bottom of its drawer. Turn off
    a step you never want to see.
@@ -31,6 +32,36 @@ For example, with the order Music playing, Camera, Clock:
 - the camera is unavailable: the screen shows the clock.
 
 With every step off or unavailable, standby shows the dimmed tiles as it did before.
+
+### Set up a slideshow
+
+1. Set up a Home Assistant integration that provides a photo camera, such as Album Slideshow. No Tessera plugin is
+   needed. The integration chooses the photos, their order and the time between them.
+2. Rebuild the screen with firmware that supports the native slideshow. The editor says **Rebuild this screen** until
+   the screen reports that support; a firmware version number alone is not enough.
+3. Open **Slideshow** in the Screensaver card, select the integration's `camera` entity and turn the step on.
+   Place it before **Clock**, or before **Camera** if that camera would otherwise always win. Existing choices keep
+   their old order, with the new empty Slideshow step inserted just before Clock.
+4. Leave **Photo fit** at **Contain** to see the whole picture on black, or choose **Cover** to fill the glass and crop
+   its edges. **Show clock and date** is off by default: without it the photo is not darkened, and no name or text is
+   drawn over it. Turning it on darkens the photo slightly and adds the screen's local time and date.
+
+For Album Slideshow, set **Slide interval** in Home Assistant, not Tessera. It accepts any positive number of seconds,
+including 10; its default is 60. Set **Order mode** there too: random, album order, or newest/oldest by date taken or
+date added. Keep **Pause slideshow** off when you want it to advance, and keep **Pause when not viewed** off:
+plain camera snapshots do not count as viewing the album. **Orientation mismatch: single** avoids paired photos if
+you want one at a time. See the integration's [reference](https://github.com/eyalgal/album_slideshow/blob/main/docs/reference.md).
+
+The integration sends a finished camera canvas. Its **Aspect ratio**, **Fill mode** and pairing settings have already
+been applied before Tessera gets it. Tessera's Contain and Cover fit that canvas, not the original photo: they cannot
+recover a crop or separate photos paired upstream.
+
+A missing, unknown or unavailable photo camera gives way to the next enabled step. A failed snapshot or download is
+different: the last good picture stays while the shared picture loader retries. Before the first good picture the
+glass remains black while it retries; a fetch failure alone does not choose the next step. A reported camera state
+change asks for the new picture promptly. Between changes the screen checks snapshots about every four seconds,
+not the Camera step's 15 seconds. A 10-second upstream interval is supported, though the screen is not an exact
+slideshow timer and slow snapshots or downloads can delay a change.
 
 A tap wakes the screen, as it always did in standby, and that first touch never switches a lamp or opens a card
 under the screensaver. The one exception is a player's keys.
@@ -59,6 +90,8 @@ the camera or the clock, since a speaker stays paused in Home Assistant for days
   The words end before the keys, so a long title takes its second line and then its dots in the room left of them.
 - **Camera**: the camera over the whole glass, cut to it the way a photo fills a frame, with its name small at the
   bottom left, refreshed every 15 seconds.
+- **Slideshow**: the photo camera's whole canvas on black by default, without a name, spinner, keys or darkening.
+  Cover and an optional time and date are chosen in its drawer.
 - **Clock**: the time in the bedside clock's digits and the date under it, white on black whatever the look, so the
   glass gives as little light as it can (firmware 0.31.0; before, it stood in the screen's own colours). On 12 hours AM
   or PM stands after the time. Small in the middle at the bottom is the outside temperature: Home Assistant's forecast
@@ -73,7 +106,7 @@ white on black like the rest, whatever the colour of the entity. They look as th
 and icons, and a moment ("5 min ago") counts on as it does there. When the line is wider than the glass, the last
 entities leave until it fits, so the temperature always stays. A screen on older firmware shows the temperature alone.
 
-The cover and the camera are a little darker everywhere, so the words always read. A camera has nothing else on it,
+The cover and the Camera step are a little darker everywhere, so the words always read. A camera has nothing else on it,
 and a cover only its three keys: no bar, no spinner.
 
 The screensaver shows at **Standby brightness**, the level standby always dimmed to, and during the night hours at
@@ -81,7 +114,7 @@ the night brightness. Raise Standby brightness for a cover that reads from acros
 screen goes dark and shows no screensaver. Sleep pressed in Home Assistant keeps the screen at its standby level
 without a screensaver.
 
-When the screensaver has nothing to show (no music playing and no camera or clock chosen), the dimmed tiles stay on the
+When the screensaver has nothing to show (no music playing and no camera, slideshow or clock chosen), the dimmed tiles stay on the
 glass. Their camera pictures and album covers keep refreshing then, as they do with the screen in use, as long as the
 level is 5 % or more (firmware 0.40.0). Under a screensaver, the clock too, and on a darker glass they wait until the
 screen wakes.
@@ -99,7 +132,9 @@ has.
   (`screen_manager/app/screen_saver.py`). The layouts' own storage does not change, so an older add-on still reads
   every layout. `PUT api/screens/<inbox>/screensaver` stores the whole choice, and the screen's entry in the editor's
   inventory carries it as `screensaver`, with `ready` (the firmware takes one), `pictures` (the board draws pictures)
-  and `standby` (the board goes into standby at all).
+  and `standby` (the board goes into standby at all). `slideshow`, `slideshow_fit` and `slideshow_clock` keep the photo
+  source and presentation. `slideshow_ready` requires both picture support and the negotiated hello feature
+  `saver_slideshow`; an older screen skips that step and still receives its existing Camera, Music or Clock message.
 - **The clock's entities** are `items` in the choice: entity items checked by `core.validate_header`, with the content
   `state` or `icon` and shown always, at most `ITEMS_MAX`. The app follows their entities like the weather's. A screen
   whose hello lists `saver_items` gets `wi` in the clock's message: the whole line as the top bar's wire items
@@ -121,7 +156,7 @@ has.
   the next track, so the app answers that once and moves on to the next step at once. It fetches the cover again by
   itself every `COVER_RETRY_SECONDS`, and a cover still on its way gets no answer, so the screen asks again.
 - **On the wire** the answer is one message in the screen's session, sent when it changes and once in every new
-  session: `{"op": "saver", "k": "media" | "camera" | "clock" | ""}`. One whose answer did not come is sent again on the
+  session: `{"op": "saver", "k": "media" | "camera" | "slideshow" | "clock" | ""}`. One whose answer did not come is sent again on the
   next pass, also when the step went back to the one before it: it may have reached the screen. A player adds its entity (`e`), its name
   (`n`), the title (`t`) and `x`: the artist, the album, the picture's mark and the cover's colour, the things its
   picture and words are made from. Where the track is goes along with none of it, so a player that reports its
@@ -129,6 +164,8 @@ has.
   new for the list. A screen whose hello also lists `saver_keys` (firmware 0.33.0) gets two more fields with a
   player: `s`, its state (`playing` or `paused`), `f`, Home Assistant's `supported_features`, and `m: 1` while it is muted. For such a screen a
   player paused less than `PAUSED_SECONDS` ago counts after every player that plays.
+  Slideshow sends `e`, `fit`, `clock` and `x.pic`: the existing `core.revision` fingerprint of its camera state,
+  not its private attributes or access token. Its source is followed even when there is no camera tile.
 - **The keys** (`saver_keys_draw`, `saver_key_event` in `runtime_tiles.h`) are the only clickable objects of the
   screensaver, so their tap never reaches the dim overlay and the screen stays in standby. A tap goes through the touch
   guard like every key and sends `media_player.media_play_pause`, `volume_up` or `volume_down` for the player on the
@@ -149,6 +186,14 @@ has.
   1024 x 640) is scaled to the glass on the screen. A camera loads every 15 seconds (`SAVER_CAMERA_MS`), a cover once
   per track. The app lets the screen load the chosen camera and player although no tile shows them
   (`camera_allowed`).
+- **The slideshow picture** uses the same authenticated Home Assistant snapshot bridge and full-screen loader.
+  The app checks the exact saved slideshow source and uses its saved fit and clock settings, never a presentation
+  supplied by the requesting screen. It fetches the current snapshot, does not report an old cached frame as a
+  successful failed fetch, and schedules no speculative snapshot for this mode. Mode, fit and clock are part of the
+  rendered cache key, link, ETag and firmware identity, so changing them reloads even when the photo is unchanged.
+  The labels for its optional clock and date update in place. Wake, Sleep, zero brightness and alerts keep their
+  existing cancellation and brightness rules. Closing its view cancels the screen's loader and schedules no further
+  slideshow fetches; a Home Assistant snapshot already in flight may finish.
 - **The words** stand where `saver_view.h` puts them, by the same five-to-four rule, pure arithmetic that
   `tests/test_saver_view.cpp` checks on every glass. `tests/test_screen_saver.py` covers the choice, the pick, the
   message, the picture and the delivery.

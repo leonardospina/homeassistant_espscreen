@@ -101,6 +101,12 @@ static void clock_in_the_middle() {
 }
 
 int main() {
+  assert(picture_kind("media") && picture_kind("camera") && picture_kind("slideshow"));
+  assert(!picture_kind("clock") && !picture_kind("slidesho"));
+  assert(valid_kind("") && valid_kind("clock") && valid_kind("slideshow") && !valid_kind("slideshows"));
+  assert(presentation("slideshow", "contain", false) != presentation("slideshow", "cover", false));
+  assert(presentation("slideshow", "contain", false) != presentation("slideshow", "contain", true));
+  assert(presentation("camera", "contain", false) != presentation("slideshow", "contain", false));
   words_on_every_glass();
   keys_on_every_glass();
   clock_in_the_middle();

@@ -31,6 +31,7 @@ beforeEach(() => {
       { id: "media_player.tv", name: "Apple TV", area: "Living room" }, { id: "media_player.speaker", name: "Speaker", area: "Living room" },
       { id: "media_player.kitchen", name: "Kitchen", area: "Kitchen" }, { id: "camera.door", name: "Front door", area: "Outside" },
       { id: "weather.home", name: "Home" }, { id: "lock.front", name: "Front lock" },
+      { id: "image.photo", name: "Still photo" },
     ],
     builtin: [], header: { max_items: 6, builtin: [] },
   } as unknown as Inventory;
@@ -42,6 +43,19 @@ beforeEach(() => {
 const rows = (wrapper: ReturnType<typeof mount>) => wrapper.findAll(".saver-row").map((row) => `${row.find("b").text()}: ${row.find("small").text()}`);
 
 describe("the screensaver card", () => {
+  it("lists, toggles and reorders the native slideshow step", async () => {
+    useScreenStore().currentScreen!.screensaver = saver({ slideshow_ready: true, slideshow: "camera.door",
+      order: ["media", "camera", "slideshow", "clock"] });
+    const wrapper = mount(ScreensaverCard);
+    const row = wrapper.find('.saver-row[data-kind="slideshow"]');
+    expect(row.text()).toContain("Front door");
+    await row.find('[role="switch"]').trigger("click");
+    expect(useScreenStore().currentScreen!.screensaver!.off).toContain("slideshow");
+    await row.trigger("keydown", { key: "ArrowUp" });
+    expect(useScreenStore().currentScreen!.screensaver!.order).toEqual(["media", "slideshow", "camera", "clock"]);
+    await row.trigger("click");
+    expect(insp.inspector).toEqual({ kind: "saver", step: "slideshow" });
+  });
   it("lists the steps in their order, each with one line of what it shows", () => {
     const wrapper = mount(ScreensaverCard);
     expect(wrapper.findAll(".saver-row").map((row) => row.attributes("data-kind"))).toEqual(["media", "camera", "clock"]);
@@ -83,6 +97,23 @@ describe("the screensaver card", () => {
 });
 
 describe("a step in the drawer", () => {
+  it("offers slideshow source, fit and clock controls and warns when firmware lacks support", async () => {
+    useScreenStore().currentScreen!.screensaver = saver({ slideshow_ready: true, slideshow: "", slideshow_fit: "contain",
+      slideshow_clock: false, order: ["media", "camera", "slideshow", "clock"] });
+    const wrapper = mount(SaverInspector, { props: { step: "slideshow" } });
+    expect(wrapper.find("#saver-slideshow").exists()).toBe(true);
+    expect(useScreensaverStore().slideshowChoices.map(([id]) => id)).not.toContain("image.photo");
+    const selects = wrapper.findAllComponents({ name: "UiSelect" });
+    selects[0].vm.$emit("update:modelValue", "camera.door");
+    selects[1].vm.$emit("update:modelValue", "cover");
+    await wrapper.find("#saver-slideshow-clock [role='switch']").trigger("click");
+    expect(useScreenStore().currentScreen!.screensaver).toMatchObject({
+      slideshow: "camera.door", slideshow_fit: "cover", slideshow_clock: true,
+    });
+    useScreenStore().currentScreen!.screensaver = saver({ slideshow_ready: false });
+    await nextTick();
+    expect(wrapper.text()).toContain("Rebuild this screen");
+  });
   it("lists the players in the order they are tried, and takes one out", async () => {
     const wrapper = mount(SaverInspector, { props: { step: "media" } });
     expect(wrapper.findAll(".saver-player").map((row) => row.find(".tx b").text())).toEqual(["Apple TV", "Speaker"]);
