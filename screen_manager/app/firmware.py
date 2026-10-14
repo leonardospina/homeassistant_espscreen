@@ -39,12 +39,27 @@ def profile_meta(text):
         return value if isinstance(value, str) else None
     # 'screen': the profile pulls this project's board package, so it is one of ours (not any ESPHome device).
     packages = data.get('packages') if isinstance(data.get('packages'), dict) else {}
-    ours = any(isinstance(entry, dict) and REPO in str(entry.get('url', '')) for entry in packages.values())
+    repository = substitutions.get('GITHUB_REPOSITORY')
+    fork = f'https://github.com/{repository}' if isinstance(repository, str) and re.fullmatch(
+        r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository) else None
+
+    def is_screen_package(entry):
+        if not isinstance(entry, dict):
+            return False
+        url = str(entry.get('url', ''))
+        if REPO in url:
+            return True
+        files = entry.get('files')
+        first = files[0] if isinstance(files, list) and files else files
+        return bool(fork and url.rstrip('/').removesuffix('.git') == fork
+                    and isinstance(first, str) and first in SHAPES)
+
+    ours = any(is_screen_package(entry) for entry in packages.values())
     # The board package the profile builds from ("packages/guition.yaml"): what the screen looks like follows
     # from it (core.SHAPES), so the editor draws the right screen before it has ever been flashed.
     package = None
     for entry in packages.values():
-        if isinstance(entry, dict) and REPO in str(entry.get('url', '')):
+        if is_screen_package(entry):
             files = entry.get('files')
             first = files[0] if isinstance(files, list) and files else files
             if isinstance(first, str):

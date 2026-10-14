@@ -55,6 +55,49 @@ class VersionSourceTests(unittest.TestCase):
 
 
 class ProfileNameTests(unittest.TestCase):
+    def test_an_explicit_fork_profile_keeps_its_board_and_is_not_moved_to_another_channel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Firmware(tmp, tmp)
+            text = '''substitutions:
+  GITHUB_REPOSITORY: test-owner/screen-fork
+  GITHUB_REF: test/slideshow
+esphome:
+  name: photo-screen
+packages:
+  display:
+    url: https://github.com/test-owner/screen-fork.git
+    ref: test/slideshow
+    files: [packages/wavesharelcd4.yaml]
+'''
+            path = Path(tmp) / 'photo-screen.yaml'
+            path.write_text(text)
+            meta = f.profile_names()[path.name]
+            self.assertTrue(meta['screen'])
+            self.assertEqual(meta['package'], 'packages/wavesharelcd4.yaml')
+            self.assertEqual(f.status()['profiles'][0]['chip'], 'ESP32-S3')
+            self.assertFalse(f.set_branch(path.name, 'dev'))
+            self.assertEqual(path.read_text(), text)
+
+    def test_a_fork_profile_requires_the_declared_repository_and_a_known_board(self):
+        text = '''substitutions:
+  GITHUB_REPOSITORY: test-owner/screen-fork
+esphome:
+  name: photo-screen
+packages:
+  display:
+    url: https://github.com/test-owner/screen-fork
+    ref: test/slideshow
+    files: [packages/wavesharelcd4.yaml]
+'''
+        for other in (text.replace('  GITHUB_REPOSITORY: test-owner/screen-fork\n', ''),
+                      text.replace('url: https://github.com/test-owner/', 'url: https://github.com/another-owner/'),
+                      text.replace('url: https://github.com/', 'url: https://example.com/'),
+                      text.replace('packages/wavesharelcd4.yaml', 'packages/unknown.yaml')):
+            with self.subTest(profile=other):
+                meta = firmware.profile_meta(other)
+                self.assertFalse(meta['screen'])
+                self.assertIsNone(meta['package'])
+
     def test_profiles_are_read_without_resolving_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             f = Firmware(tmp, tmp)

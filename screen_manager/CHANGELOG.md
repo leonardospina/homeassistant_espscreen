@@ -1,5 +1,9 @@
 ## Unreleased
 
+- **Firmware from a fork stays together.** A screen's `GITHUB_REPOSITORY` and `GITHUB_REF` can select the same fork
+  and branch for its components and fonts as its board package. The app recognises the board of an explicitly
+  configured fork profile without moving it to an upstream release. This lets Waveshare LCD 4 testers combine the
+  board's touch driver with Picture Frame's album slideshow.
 - **Camera pictures on plugin tiles.** A plugin's picture tile can show its selected Home Assistant camera, including
   an album slideshow. A reported camera state change refreshes the picture without sending camera access tokens to
   the screen. Ordering and the time between slides stay with the Home Assistant integration.
@@ -246,6 +250,16 @@
   it on its screen and marks it), the tiles that show an entity on whichever screen they stand, the plugins (open one,
   add it to this screen), and identifies or updates a screen by its name; updating every screen asks first. What was
   chosen last comes first, the arrow keys walk the rows, and the row in focus says what Enter does.
+- **The Waveshare ESP32-S3-Touch-LCD-4 as a board of its own** ([docs/WAVESHARELCD4.md](../docs/WAVESHARELCD4.md)).
+  This is the 4-inch board without the "B": a CH32V003 I/O expander and other pins, so the 4B's profile never fitted
+  it. New screen offers it as Waveshare 4 inch, marked experimental. The glass is the 4B's, so the screen looks the
+  same: two columns of three tiles at 170 dpi, with a dimmable backlight, standby, night mode and camera pictures.
+  A screen built from it has started, drawn the interface, joined a network and answered touch; the rest of the
+  hardware acceptance is still open. Its experimental touch driver follows Waveshare's factory power sequence:
+  address-select, system power and touch reset stay low for 200 ms, then power and reset stay high for 200 ms while
+  address-select remains low before it probes the GT911 at either supported address. It accepts the startup only when
+  the controller reports nonzero panel geometry, and otherwise repeats the full sequence up to three times. It needs
+  ESPHome 2026.7.0 or later.
 
 ## 0.4.86 (firmware 0.54.0)
 

@@ -26,6 +26,22 @@ Both entries of every board are written from `boards.yaml` by `tools/generate_en
 fails when one is out of date), so neither is edited by hand. The old profiles in the root of the repository are gone
 (app 0.2.129); a build from a checkout names `checkout/<board>.yaml`.
 
+### Testing firmware from a fork
+
+Installing the app from a fork does not select that fork's firmware. In the screen's own ESPHome YAML, set
+`packages.display.url` to the fork's GitHub URL and `packages.display.ref` to the branch you want to test. In its
+existing `substitutions`, also set `GITHUB_REPOSITORY` to the same `<owner>/<repository>` and `GITHUB_REF` to that
+branch. The remote entry then fetches both components and fonts from that repository and branch. Upstream remains
+the default when these substitutions are absent.
+
+Keep the board entry in `files`, for example `packages/wavesharelcd4.yaml`, and the existing device name, Wi-Fi,
+API encryption key and OTA password. Remove an old `FONT_DIR` override only if it was a remote URL for another
+branch: the entry now works out the matching URL. Keep an intentional local font directory.
+
+The app recognises a fork profile when its package URL matches the explicit `GITHUB_REPOSITORY` and its entry is a
+known board. It leaves fork URLs and custom branch refs alone rather than moving them to upstream main or dev.
+Check this configuration before installing a plugin: the plugin build uses the screen's existing YAML too.
+
 A board file reads like this (the 4-inch Guition, without its comments):
 
 ```yaml
